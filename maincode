@@ -1,0 +1,105 @@
+// Tambahkan library WiFi dan Blynk
+#define BLYNK_TEMPLATE_ID "TMPL6pWikdQno"
+#define BLYNK_TEMPLATE_NAME "Final Project IoT"
+#define BLYNK_AUTH_TOKEN "2ha80WDu_Z9cXnrdCVlP0DJGIedYB7hR"
+
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+
+// Informasi jaringan Wi-Fi
+const char* ssid = "equator03";         // Ganti dengan nama jaringan Wi-Fi Anda
+const char* password = "dukaatuh68";      // Ganti dengan kata sandi Wi-Fi Anda
+
+// Pin konfigurasi
+const int mq2Pin = 33;       // Pin ADC untuk MQ-2 di ESP32 (gunakan GPIO 33)
+const int relay1Pin = 14;    // Relay 1
+const int redPin = 27;       // Pin untuk LED Merah
+const int yellowPin = 26;    // Pin untuk LED Kuning
+const int greenPin = 25;     // Pin untuk LED Hijau
+const int buzzerPin = 14;    // Pin untuk Buzzer
+int threshold = 1200;         // Ambang batas asap
+
+void setup() {
+  Serial.begin(9600);        // Memulai komunikasi serial
+  
+  // Hubungkan ke Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nTerhubung ke Wi-Fi");
+
+  // Inisialisasi Blynk
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, password);
+
+  // Pengaturan pin
+  pinMode(mq2Pin, INPUT);       // Set pin MQ-2 sebagai input
+  pinMode(relay1Pin, OUTPUT);   // Set pin relay 1 sebagai output
+  pinMode(redPin, OUTPUT);      // Set pin LED Merah sebagai output
+  pinMode(yellowPin, OUTPUT);   // Set pin LED Kuning sebagai output
+  pinMode(greenPin, OUTPUT);    // Set pin LED Hijau sebagai output
+  pinMode(buzzerPin, OUTPUT);   // Set pin buzzer sebagai output
+
+  // Memastikan relay, LED, dan buzzer dalam keadaan mati saat memulai
+  digitalWrite(relay1Pin, LOW);
+  turnOffLEDs();                // Mematikan semua LED
+  noTone(buzzerPin);            // Memastikan buzzer mati
+}
+
+void loop() {
+  Blynk.run(); // Menjalankan koneksi Blynk
+
+  int smokeValue = analogRead(mq2Pin); // Membaca nilai sensor MQ-2
+  Serial.print("Nilai Gas: ");
+  Serial.println(smokeValue);          // Menampilkan nilai asap di Serial Monitor
+
+  // Mengirim nilai gas ke aplikasi Blynk (gunakan Virtual Pin V0)
+  Blynk.virtualWrite(V0, smokeValue); 
+
+  // Logika deteksi gas
+  if (smokeValue > threshold) {
+    digitalWrite(relay1Pin, HIGH);    // Aktifkan Relay 1
+    tone(buzzerPin, 100);             // Mengeluarkan suara buzzer
+    setLEDColor("RED");               // Merah - asap terdeteksi
+    Serial.println("Gas terdeteksi!!!!");
+  } else if (smokeValue > threshold - 50) {
+    digitalWrite(relay1Pin, LOW);
+    noTone(buzzerPin);                // Memastikan buzzer mati
+    setLEDColor("YELLOW");            // Kuning - kadar asap mendekati batas
+    Serial.println("Gas mendekati ambang batas.");
+  } else {
+    digitalWrite(relay1Pin, LOW);     // Matikan Relay 1
+    noTone(buzzerPin);                // Mematikan buzzer
+    setLEDColor("GREEN");             // Hijau - tidak ada asap
+    Serial.println("Tidak ada Gas.");
+  }
+
+  // Kirim status ke Blynk (Virtual Pin V1 untuk status gas)
+  if (smokeValue > threshold) {
+    Blynk.virtualWrite(V1, "Gas Terdeteksi!");
+  } else {
+    Blynk.virtualWrite(V1, "Normal");
+  }
+
+  delay(10000); // Delay untuk pembacaan setiap detik
+}
+
+// Fungsi untuk mematikan semua LED
+void turnOffLEDs() {
+  digitalWrite(redPin, LOW);
+  digitalWrite(yellowPin, LOW);
+  digitalWrite(greenPin, LOW);
+}
+
+// Fungsi untuk mengatur warna LED
+void setLEDColor(String color) {
+  turnOffLEDs(); // Memastikan hanya satu LED yang menyala
+  if (color == "RED") {
+    digitalWrite(redPin, HIGH);
+  } else if (color == "YELLOW") {
+    digitalWrite(yellowPin, HIGH);
+  } else if (color == "GREEN") {
+    digitalWrite(greenPin, HIGH);
+  }
+}
