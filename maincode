@@ -1,23 +1,33 @@
-// Tambahkan library WiFi dan Blynk
 #define BLYNK_TEMPLATE_ID "TMPL6pWikdQno"
 #define BLYNK_TEMPLATE_NAME "Final Project IoT"
 #define BLYNK_AUTH_TOKEN "2ha80WDu_Z9cXnrdCVlP0DJGIedYB7hR"
 
 #include <WiFi.h>
 #include <BlynkSimpleEsp32.h>
+#include <math.h>
 
 // Informasi jaringan Wi-Fi
 const char* ssid = "equator03";         // Ganti dengan nama jaringan Wi-Fi Anda
-const char* password = "dukaatuh68";      // Ganti dengan kata sandi Wi-Fi Anda
+const char* password = "dukaatuh68";    // Ganti dengan kata sandi Wi-Fi Anda
 
 // Pin konfigurasi
-const int mq2Pin = 33;       // Pin ADC untuk MQ-2 di ESP32 (gunakan GPIO 33)
-const int relay1Pin = 14;    // Relay 1
-const int redPin = 27;       // Pin untuk LED Merah
-const int yellowPin = 26;    // Pin untuk LED Kuning
-const int greenPin = 25;     // Pin untuk LED Hijau
-const int buzzerPin = 14;    // Pin untuk Buzzer
-int threshold = 1200;         // Ambang batas asap
+const int mq135Pin = 33;    // Pin ADC untuk MQ-135 di ESP32 (gunakan GPIO 33)
+const int relay1Pin = 14;   // Relay 1
+const int redPin = 27;      // Pin untuk LED Merah
+const int yellowPin = 26;   // Pin untuk LED Kuning
+const int greenPin = 25;    // Pin untuk LED Hijau
+const int buzzerPin = 14;   // Pin untuk Buzzer
+
+// Kalibrasi sensor MQ-135
+float R0 = 10.0;            // Nilai resistansi udara bersih (ubah sesuai kalibrasi)
+const float VCC = 5.0;      // Tegangan input sensor (5V)
+
+// Ambang batas konsentrasi gas (ppm)
+float normalLimit = 100.0;  // Normal (ppm < 100)
+float warningLimit = 200.0; // Peringatan (100 ≤ ppm < 200)
+
+unsigned long previousMillis = 0;
+const long interval = 3000; // Interval pembacaan 3 detik
 
 void setup() {
   Serial.begin(9600);        // Memulai komunikasi serial
@@ -34,12 +44,12 @@ void setup() {
   Blynk.begin(BLYNK_AUTH_TOKEN, ssid, password);
 
   // Pengaturan pin
-  pinMode(mq2Pin, INPUT);       // Set pin MQ-2 sebagai input
-  pinMode(relay1Pin, OUTPUT);   // Set pin relay 1 sebagai output
-  pinMode(redPin, OUTPUT);      // Set pin LED Merah sebagai output
-  pinMode(yellowPin, OUTPUT);   // Set pin LED Kuning sebagai output
-  pinMode(greenPin, OUTPUT);    // Set pin LED Hijau sebagai output
-  pinMode(buzzerPin, OUTPUT);   // Set pin buzzer sebagai output
+  pinMode(mq135Pin, INPUT);      // Set pin MQ-135 sebagai input
+  pinMode(relay1Pin, OUTPUT);    // Set pin relay 1 sebagai output
+  pinMode(redPin, OUTPUT);       // Set pin LED Merah sebagai output
+  pinMode(yellowPin, OUTPUT);    // Set pin LED Kuning sebagai output
+  pinMode(greenPin, OUTPUT);     // Set pin LED Hijau sebagai output
+  pinMode(buzzerPin, OUTPUT);    // Set pin buzzer sebagai output
 
   // Memastikan relay, LED, dan buzzer dalam keadaan mati saat memulai
   digitalWrite(relay1Pin, LOW);
@@ -50,39 +60,63 @@ void setup() {
 void loop() {
   Blynk.run(); // Menjalankan koneksi Blynk
 
-  int smokeValue = analogRead(mq2Pin); // Membaca nilai sensor MQ-2
-  Serial.print("Nilai Gas: ");
-  Serial.println(smokeValue);          // Menampilkan nilai asap di Serial Monitor
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
 
-  // Mengirim nilai gas ke aplikasi Blynk (gunakan Virtual Pin V0)
-  Blynk.virtualWrite(V0, smokeValue); 
+    // Membaca konsentrasi gas (ppm)
+    int analogValue = readMQ135Average(mq135Pin, 10); // Membaca rata-rata dari 10 sampel
+    float ppm = calculatePPM(analogValue);
 
-  // Logika deteksi gas
-  if (smokeValue > threshold) {
-    digitalWrite(relay1Pin, HIGH);    // Aktifkan Relay 1
-    tone(buzzerPin, 100);             // Mengeluarkan suara buzzer
-    setLEDColor("RED");               // Merah - asap terdeteksi
-    Serial.println("Gas terdeteksi!!!!");
-  } else if (smokeValue > threshold - 50) {
-    digitalWrite(relay1Pin, LOW);
-    noTone(buzzerPin);                // Memastikan buzzer mati
-    setLEDColor("YELLOW");            // Kuning - kadar asap mendekati batas
-    Serial.println("Gas mendekati ambang batas.");
-  } else {
-    digitalWrite(relay1Pin, LOW);     // Matikan Relay 1
-    noTone(buzzerPin);                // Mematikan buzzer
-    setLEDColor("GREEN");             // Hijau - tidak ada asap
-    Serial.println("Tidak ada Gas.");
+    // Menampilkan nilai gas di Serial Monitor
+    Serial.print("Nilai Analog: ");
+    Serial.print(analogValue);
+    Serial.print(" | PPM: ");
+    Serial.println(ppm);
+
+    // Mengirim nilai gas ke aplikasi Blynk (Virtual Pin V0)
+    Blynk.virtualWrite(V0, ppm);
+
+    // Logika deteksi gas berdasarkan konsentrasi ppm
+    if (ppm >= warningLimit) {
+      digitalWrite(relay1Pin, HIGH);    // Aktifkan Relay 1
+      tone(buzzerPin, 100);             // Mengeluarkan suara buzzer
+      setLEDColor("RED");               // Merah - gas berbahaya
+      Serial.println("Gas berbahaya terdeteksi!");
+      Blynk.virtualWrite(V27, "Gas Berbahaya!");
+    } else if (ppm >= normalLimit) {
+      digitalWrite(relay1Pin, LOW);
+      noTone(buzzerPin);                // Memastikan buzzer mati
+      setLEDColor("YELLOW");            // Kuning - gas mendekati batas
+      Serial.println("Gas mendekati ambang batas.");
+      Blynk.virtualWrite(V26, "Gas Mendekati Ambang Batas");
+    } else {
+      digitalWrite(relay1Pin, LOW);     // Matikan Relay 1
+      noTone(buzzerPin);                // Mematikan buzzer
+      setLEDColor("GREEN");             // Hijau - tidak ada gas berbahaya
+      Serial.println("Gas normal.");
+      Blynk.virtualWrite(V25, "Normal");
+    }
   }
+}
 
-  // Kirim status ke Blynk (Virtual Pin V1 untuk status gas)
-  if (smokeValue > threshold) {
-    Blynk.virtualWrite(V1, "Gas Terdeteksi!");
-  } else {
-    Blynk.virtualWrite(V1, "Normal");
+// Fungsi untuk membaca rata-rata nilai dari sensor
+int readMQ135Average(int pin, int numSamples) {
+  long sum = 0;
+  for (int i = 0; i < numSamples; i++) {
+    sum += analogRead(pin);
+    delay(10); // Sedikit jeda antar pembacaan
   }
+  return sum / numSamples;
+}
 
-  delay(10000); // Delay untuk pembacaan setiap detik
+// Fungsi untuk menghitung konsentrasi gas (ppm) dari nilai analog
+float calculatePPM(int analogValue) {
+  float voltage = analogValue * (VCC / 4095.0); // Konversi nilai ADC ke voltase
+  float rs = (VCC - voltage) / voltage;        // Resistansi sensor
+  float ratio = rs / R0;                       // Rasio terhadap resistansi udara bersih
+  float ppm = pow(10, ((-1.25) * log10(ratio)) + 1.44); // Rumus dari datasheet MQ-135
+  return ppm;
 }
 
 // Fungsi untuk mematikan semua LED
