@@ -12,7 +12,7 @@ const char* password = "dukaatuh68";    // Ganti dengan kata sandi Wi-Fi Anda
 
 // Pin konfigurasi
 const int mq135Pin = 33;    // Pin ADC untuk MQ-135 di ESP32 (gunakan GPIO 33)
-const int relay1Pin = 14;   // Relay 1
+const int relay1Pin = 32;   // Relay 1
 const int redPin = 27;      // Pin untuk LED Merah
 const int yellowPin = 26;   // Pin untuk LED Kuning
 const int greenPin = 25;    // Pin untuk LED Hijau
@@ -30,7 +30,7 @@ unsigned long previousMillis = 0;
 const long interval = 3000; // Interval pembacaan 3 detik
 
 void setup() {
-  Serial.begin(9600);        // Memulai komunikasi serial
+  Serial.begin(115200);        // Memulai komunikasi serial
   
   // Hubungkan ke Wi-Fi
   WiFi.begin(ssid, password);
@@ -80,22 +80,28 @@ void loop() {
     // Logika deteksi gas berdasarkan konsentrasi ppm
     if (ppm >= warningLimit) {
       digitalWrite(relay1Pin, HIGH);    // Aktifkan Relay 1
-      tone(buzzerPin, 100);             // Mengeluarkan suara buzzer
+      playDangerMelody();               // Bunyi buzzer danger
       setLEDColor("RED");               // Merah - gas berbahaya
       Serial.println("Gas berbahaya terdeteksi!");
-      Blynk.virtualWrite(V27, "Gas Berbahaya!");
+      Blynk.virtualWrite(V27,1);
+      Blynk.virtualWrite(V26,0);
+      Blynk.virtualWrite(V25,0);
     } else if (ppm >= normalLimit) {
-      digitalWrite(relay1Pin, LOW);
-      noTone(buzzerPin);                // Memastikan buzzer mati
-      setLEDColor("YELLOW");            // Kuning - gas mendekati batas
+      digitalWrite(relay1Pin, LOW);     // Matikan relay
+      noTone(buzzerPin);                // Pastikan buzzer mati
+      setLEDColor("BLUE");            // Biru - gas mendekati batas
       Serial.println("Gas mendekati ambang batas.");
-      Blynk.virtualWrite(V26, "Gas Mendekati Ambang Batas");
+      Blynk.virtualWrite(V27,0);
+      Blynk.virtualWrite(V26,1);
+      Blynk.virtualWrite(V25,0);
     } else {
       digitalWrite(relay1Pin, LOW);     // Matikan Relay 1
-      noTone(buzzerPin);                // Mematikan buzzer
+      noTone(buzzerPin);                // Pastikan buzzer mati
       setLEDColor("GREEN");             // Hijau - tidak ada gas berbahaya
       Serial.println("Gas normal.");
-      Blynk.virtualWrite(V25, "Normal");
+      Blynk.virtualWrite(V27,0);
+      Blynk.virtualWrite(V26,0);
+      Blynk.virtualWrite(V25,1);
     }
   }
 }
@@ -117,6 +123,29 @@ float calculatePPM(int analogValue) {
   float ratio = rs / R0;                       // Rasio terhadap resistansi udara bersih
   float ppm = pow(10, ((-1.25) * log10(ratio)) + 1.44); // Rumus dari datasheet MQ-135
   return ppm;
+}
+
+// Fungsi untuk memainkan melodi saat kondisi danger
+void playDangerMelody() {
+  // Tiga nada pendek (S)
+  for (int i = 0; i < 3; i++) {
+    tone(buzzerPin, 784, 200); // Nada pendek (G5) selama 200 ms
+    delay(300);                // Jeda antar nada pendek
+  }
+
+  // Tiga nada panjang (O)
+  for (int i = 0; i < 3; i++) {
+    tone(buzzerPin, 784, 600); // Nada panjang (G5) selama 600 ms
+    delay(700);                // Jeda antar nada panjang
+  }
+
+  // Tiga nada pendek (S)
+  for (int i = 0; i < 3; i++) {
+    tone(buzzerPin, 784, 200); // Nada pendek (G5) selama 200 ms
+    delay(300);                // Jeda antar nada pendek
+  }
+
+  noTone(buzzerPin); // Matikan buzzer setelah melodi selesai
 }
 
 // Fungsi untuk mematikan semua LED
